@@ -270,6 +270,61 @@ class WriteTest(BaseTest):
         self.assertEqual(self.dst.getnames(), [], "added the archive to itself")
 
 
+class AppendTest(unittest.TestCase):
+    # Test append mode (cp. patch #1652681).
+
+    def setUp(self):
+        self.cpioname = tmpname()
+        if os.path.exists(self.cpioname):
+            os.remove(self.cpioname)
+
+    def _add_testfile(self, fileobj=None):
+        cpio = cpiofile.open(self.cpioname, "a", fileobj=fileobj)
+        cpio.addfile(cpiofile.CpioInfo("bar"))
+        cpio.close()
+
+    def _create_testcpio(self):
+        src = cpiofile.open(cpioname())
+        t = src.getmember("0-REGTYPE")
+        t.name = "foo"
+        f = src.extractfile(t)
+        cpio = cpiofile.open(self.cpioname, "w")
+        cpio.addfile(t, f)
+        cpio.close()
+
+    def _test(self, names=["bar"], fileobj=None):
+        cpio = cpiofile.open(self.cpioname, fileobj=fileobj)
+        self.assert_(cpio.getnames() == names)
+
+    def test_non_existing(self):
+        self._add_testfile()
+        self._test()
+
+    def test_empty(self):
+        open(self.cpioname, "w").close()
+        self._add_testfile()
+        self._test()
+
+    def test_empty_fileobj(self):
+        fobj = StringIO.StringIO()
+        self._add_testfile(fobj)
+        fobj.seek(0)
+        self._test(fileobj=fobj)
+
+    def test_fileobj(self):
+        self._create_testcpio()
+        data = open(self.cpioname).read()
+        fobj = StringIO.StringIO(data)
+        self._add_testfile(fobj)
+        fobj.seek(0)
+        self._test(names=["foo", "bar"], fileobj=fobj)
+
+    def test_existing(self):
+        self._create_testcpio()
+        self._add_testfile()
+        self._test(names=["foo", "bar"])
+
+
 class WriteSize0Test(BaseTest):
     mode = 'w'
 
@@ -495,6 +550,7 @@ def _test_main():
         ReadAsteriskTest,
         ReadStreamAsteriskTest,
         WriteTest,
+        AppendTest,
         WriteSize0Test,
         WriteStreamTest,
     ]

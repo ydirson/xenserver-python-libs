@@ -935,6 +935,10 @@ class CpioFile(object):
         self.mode = {"r": "rb", "a": "r+b", "w": "wb"}[mode]
 
         if not fileobj:
+            if self._mode == "a" and not os.path.exists(name):
+                # Create nonexistent files in append mode.
+                self._mode = "w"
+                self.mode = "wb"
             fileobj = file(name, self.mode)
             self._extfileobj = False
         else:
@@ -967,6 +971,7 @@ class CpioFile(object):
             last_offset = 0L
             while True:
                 try:
+                    last_offset = self.fileobj.tell()
                     cpioinfo = self.next()
                 except ReadError:
                     self.fileobj.seek(0)
@@ -974,8 +979,6 @@ class CpioFile(object):
                 if cpioinfo is None:
                     self.fileobj.seek(last_offset)
                     break
-                else:
-                    last_offset = cpioinfo.offset
 
         if self._mode in "aw":
             self._loaded = True
@@ -1002,7 +1005,7 @@ class CpioFile(object):
            'r:gz'       open for reading with gzip compression
            'r:bz2'      open for reading with bzip2 compression
            'r:xz'       open for reading with xz compression
-           'a' or 'a:'  open for appending
+           'a' or 'a:'  open for appending, creating the file if necessary
            'w' or 'w:'  open for writing without compression
            'w:gz'       open for writing with gzip compression
            'w:bz2'      open for writing with bzip2 compression
