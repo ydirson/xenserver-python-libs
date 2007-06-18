@@ -437,6 +437,27 @@ class CreateHardlinkTest(BaseTest):
         self.assertTrue(cpioinfo.isreg(),
                 "dereferencing hardlink failed")
 
+    def test_exclude(self):
+        tempdir = os.path.join(TEMPDIR, "exclude")
+        os.mkdir(tempdir)
+        try:
+            for name in ("foo", "bar", "baz"):
+                name = os.path.join(tempdir, name)
+                open(name, "wb").close()
+
+            def exclude(name):
+                return os.path.isfile(name)
+
+            tar = tarfile.open(tmpname, self.mode, encoding="iso8859-1")
+            tar.add(tempdir, arcname="empty_dir", exclude=exclude)
+            tar.close()
+
+            tar = tarfile.open(tmpname, "r")
+            self.assertEqual(len(tar.getmembers()), 1)
+            self.assertEqual(tar.getnames()[0], "empty_dir")
+        finally:
+            shutil.rmtree(tempdir)
+
 
 # Gzip TestCases
 class ReadTestGzip(ReadTest):
