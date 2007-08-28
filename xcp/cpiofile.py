@@ -947,9 +947,7 @@ class CpioFile(object):
             if hasattr(fileobj, "mode"):
                 self._mode = fileobj.mode
             self._extfileobj = True
-        self.name = None
-        if name:
-            self.name = os.path.abspath(name)
+        self.name = os.path.abspath(name) if name else None
         self.fileobj = fileobj
 
         # Init datastructures.
