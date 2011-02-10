@@ -1,9 +1,9 @@
-#!/usr/bin/env python
+#! /usr/bin/python
 # -*- coding: iso-8859-1 -*-
 #-------------------------------------------------------------------
 # cpiofile.py
 #-------------------------------------------------------------------
-# Copyright (C) 2002 Lars Gustäbel <lars@gustaebel.de>
+# Copyright (C) 2008 
 # All rights reserved.
 #
 # Permission  is  hereby granted,  free  of charge,  to  any person
@@ -28,16 +28,13 @@
 # OTHER DEALINGS IN THE SOFTWARE.
 #
 """Read from and write to cpio format archives.
+
+   Derived from Lars Gustäbel's tarfile.py
 """
 
-__version__ = "$Revision$"
-# $Source$
-
-version     = "0.8.0"
-__author__  = "Lars Gustäbel (lars@gustaebel.de)"
-__date__    = "$Date$"
-__cvsid__   = "$Id$"
-__credits__ = "Gustavo Niemeyer, Niels Gustäbel, Richard Townsend."
+version     = "0.1"
+__author__  = "Simon Rowe"
+__credits__ = "Lars Gustäbel"
 
 #---------
 # Imports
@@ -67,44 +64,14 @@ except ImportError:
 __all__ = ["CpioFile", "CpioInfo", "is_cpiofile", "CpioError"]
 
 #---------------------------------------------------------
-# tar constants
+# cpio constants
 #---------------------------------------------------------
-NUL        = "\0"               # the null character
-BLOCKSIZE  = 512                # length of processing blocks
-RECORDSIZE = BLOCKSIZE * 20     # length of records
-MAGIC      = "ustar"            # magic tar string
-VERSION    = "00"               # version number
-
-LENGTH_NAME    = 100            # maximum length of a filename
-LENGTH_LINK    = 100            # maximum length of a linkname
-LENGTH_PREFIX  = 155            # maximum length of the prefix field
-MAXSIZE_MEMBER = 077777777777L  # maximum size of a file (11 octal digits)
-
-REGTYPE  = "0"                  # regular file
-AREGTYPE = "\0"                 # regular file
-LNKTYPE  = "1"                  # link (inside tarfile)
-SYMTYPE  = "2"                  # symbolic link
-CHRTYPE  = "3"                  # character special device
-BLKTYPE  = "4"                  # block special device
-DIRTYPE  = "5"                  # directory
-FIFOTYPE = "6"                  # fifo special device
-CONTTYPE = "7"                  # contiguous file
-
-GNUTYPE_LONGNAME = "L"          # GNU tar extension for longnames
-GNUTYPE_LONGLINK = "K"          # GNU tar extension for longlink
-GNUTYPE_SPARSE   = "S"          # GNU tar extension for sparse file
-
-#---------------------------------------------------------
-# tarfile constants
-#---------------------------------------------------------
-SUPPORTED_TYPES = (REGTYPE, AREGTYPE, LNKTYPE,  # file types that tarfile
-                   SYMTYPE, DIRTYPE, FIFOTYPE,  # can cope with.
-                   CONTTYPE, CHRTYPE, BLKTYPE,
-                   GNUTYPE_LONGNAME, GNUTYPE_LONGLINK,
-                   GNUTYPE_SPARSE)
-
-REGULAR_TYPES = (REGTYPE, AREGTYPE,             # file types that somehow
-                 CONTTYPE, GNUTYPE_SPARSE)      # represent regular files
+MAGIC_NEWC      = 0x070701           # magic for SVR4 portable format (no CRC)
+TRAILER_NAME    = "TRAILER!!!"       # filename in final member
+WORDSIZE        = 4                  # pad size
+NUL             = "\0"               # the null character
+BLOCKSIZE       = 512                # length of processing blocks
+HEADERSIZE_SVR4 = 110                # length of fixed header
 
 #---------------------------------------------------------
 # Bits used in the mode field, values in octal.
@@ -133,68 +100,6 @@ TOEXEC  = 0001           # execute/search by other
 #---------------------------------------------------------
 # Some useful functions
 #---------------------------------------------------------
-
-def stn(s, length):
-    """Convert a python string to a null-terminated string buffer.
-    """
-    return s[:length] + (length - len(s)) * NUL
-
-def nti(s):
-    """Convert a number field to a python number.
-    """
-    # There are two possible encodings for a number field, see
-    # itn() below.
-    if s[0] != chr(0200):
-        try:
-            n = int(s.rstrip(NUL + " ") or "0", 8)
-        except ValueError:
-            raise HeaderError("invalid header")
-    else:
-        n = 0L
-        for i in xrange(len(s) - 1):
-            n <<= 8
-            n += ord(s[i + 1])
-    return n
-
-def itn(n, digits=8, posix=False):
-    """Convert a python number to a number field.
-    """
-    # POSIX 1003.1-1988 requires numbers to be encoded as a string of
-    # octal digits followed by a null-byte, this allows values up to
-    # (8**(digits-1))-1. GNU tar allows storing numbers greater than
-    # that if necessary. A leading 0200 byte indicates this particular
-    # encoding, the following digits-1 bytes are a big-endian
-    # representation. This allows values up to (256**(digits-1))-1.
-    if 0 <= n < 8 ** (digits - 1):
-        s = "%0*o" % (digits - 1, n) + NUL
-    else:
-        if posix:
-            raise ValueError("overflow in number field")
-
-        if n < 0:
-            # XXX We mimic GNU tar's behaviour with negative numbers,
-            # this could raise OverflowError.
-            n = struct.unpack("L", struct.pack("l", n))[0]
-
-        s = ""
-        for i in xrange(digits - 1):
-            s = chr(n & 0377) + s
-            n >>= 8
-        s = chr(0200) + s
-    return s
-
-def calc_chksums(buf):
-    """Calculate the checksum for a member's header by summing up all
-       characters except for the chksum field which is treated as if
-       it was filled with spaces. According to the GNU tar sources,
-       some tars (Sun and NeXT) calculate chksum with signed char,
-       which will be different if there are chars in the buffer with
-       the high bit set. So we calculate two checksums, unsigned and
-       signed.
-    """
-    unsigned_chksum = 256 + sum(struct.unpack("148B", buf[:148]) + struct.unpack("356B", buf[156:512]))
-    signed_chksum = 256 + sum(struct.unpack("148b", buf[:148]) + struct.unpack("356b", buf[156:512]))
-    return unsigned_chksum, signed_chksum
 
 def copyfileobj(src, dst, length=None):
     """Copy length bytes from fileobj src to fileobj dst.
@@ -282,9 +187,6 @@ class CompressionError(CpioError):
     pass
 class StreamError(CpioError):
     """Exception for unsupported operations on stream-like CpioFiles."""
-    pass
-class HeaderError(CpioError):
-    """Exception for invalid headers."""
     pass
 
 #---------------------------
@@ -703,6 +605,9 @@ class _FileInFile(object):
             return NUL * size
 #class _FileInFile
 
+SEEK_SET = 0
+SEEK_CUR = 1
+SEEK_END = 2
 
 class ExFileObject(object):
     """File-like object for reading an archive member.
@@ -796,20 +701,20 @@ class ExFileObject(object):
 
         return self.position
 
-    def seek(self, pos, whence=os.SEEK_SET):
+    def seek(self, pos, whence=SEEK_SET):
         """Seek to a position in the file.
         """
         if self.closed:
             raise ValueError("I/O operation on closed file")
 
-        if whence == os.SEEK_SET:
+        if whence == SEEK_SET:
             self.position = min(max(pos, 0), self.size)
-        elif whence == os.SEEK_CUR:
+        elif whence == SEEK_CUR:
             if pos < 0:
                 self.position = max(self.position + pos, 0)
             else:
                 self.position = min(self.position + pos, self.size)
-        elif whence == os.SEEK_END:
+        elif whence == SEEK_END:
             self.position = max(min(self.size + pos, self.size), 0)
         else:
             raise ValueError("Invalid argument")
@@ -847,19 +752,22 @@ class CpioInfo(object):
         """Construct a CpioInfo object. name is the optional name
            of the member.
         """
-        self.name = name        # member name (dirnames must end with '/')
-        self.mode = 0666        # file permissions
+        self.ino = 0            # i-node
+        self.mode = S_IFREG | 0444
         self.uid = 0            # user id
         self.gid = 0            # group id
-        self.size = 0           # file size
+        self.nlink = 1          # number of links
         self.mtime = 0          # modification time
-        self.chksum = 0         # header checksum
-        self.type = REGTYPE     # member type
-        self.linkname = ""      # link name
-        self.uname = "user"     # user name
-        self.gname = "group"    # group name
+        self.size = 0           # file size
         self.devmajor = 0       # device major number
         self.devminor = 0       # device minor number
+        self.rdevmajor = 0
+        self.rdevminor = 0
+        self.namesize = 0
+        self.check = 0
+
+        self.name = name
+        self.linkname = ''
 
         self.offset = 0         # the cpio header starts here
         self.offset_data = 0    # the file's data starts here
@@ -869,157 +777,81 @@ class CpioInfo(object):
 
     @classmethod
     def frombuf(cls, buf):
-        """Construct a CpioInfo object from a 512 byte string buffer.
+        """Construct a CpioInfo object from a string buffer.
         """
-        if len(buf) != BLOCKSIZE:
-            raise HeaderError("truncated header")
-        if buf.count(NUL) == BLOCKSIZE:
-            raise HeaderError("empty header")
-
-        chksum = nti(buf[148:156])
-        if chksum not in calc_chksums(buf):
-            raise HeaderError("bad checksum")
-
         cpioinfo = cls()
         cpioinfo.buf = buf
-        cpioinfo.name = buf[0:100].rstrip(NUL)
-        cpioinfo.mode = nti(buf[100:108])
-        cpioinfo.uid = nti(buf[108:116])
-        cpioinfo.gid = nti(buf[116:124])
-        cpioinfo.size = nti(buf[124:136])
-        cpioinfo.mtime = nti(buf[136:148])
-        cpioinfo.chksum = chksum
-        cpioinfo.type = buf[156:157]
-        cpioinfo.linkname = buf[157:257].rstrip(NUL)
-        cpioinfo.uname = buf[265:297].rstrip(NUL)
-        cpioinfo.gname = buf[297:329].rstrip(NUL)
-        cpioinfo.devmajor = nti(buf[329:337])
-        cpioinfo.devminor = nti(buf[337:345])
-        prefix = buf[345:500].rstrip(NUL)
 
-        if prefix and not cpioinfo.issparse():
-            cpioinfo.name = prefix + "/" + cpioinfo.name
+        cpioinfo.ino = int(buf[6:14], 16)
+        cpioinfo.mode = int(buf[14:22], 16)
+        cpioinfo.uid = int(buf[22:30], 16)
+        cpioinfo.gid = int(buf[30:38], 16)
+        cpioinfo.nlink = int(buf[38:46], 16)
+        cpioinfo.mtime = int(buf[46:54], 16)
+        cpioinfo.size = int(buf[54:62], 16)
+        cpioinfo.devmajor = int(buf[62:70], 16)
+        cpioinfo.devminor = int(buf[70:78], 16)
+        cpioinfo.rdevmajor = int(buf[78:86], 16)
+        cpioinfo.rdevminor = int(buf[86:94], 16)
+        cpioinfo.namesize = int(buf[94:102], 16)
+        cpioinfo.check = int(buf[102:110], 16)
 
         return cpioinfo
 
-    def tobuf(self, posix=False):
-        """Return a cpio header as a string of 512 byte blocks.
+    def tobuf(self):
+        """Return a cpio header as a string.
         """
-        buf = ""
-        type = self.type
-        prefix = ""
+        buf = "%06X" % MAGIC_NEWC
+        buf += "%08X" % self.ino
+        buf += "%08X" % self.mode
+        buf += "%08X" % self.uid
+        buf += "%08X" % self.gid
+        buf += "%08X" % self.nlink
+        buf += "%08X" % self.mtime
+        buf += "%08X" % (self.linkname == '' and self.size or len(self.linkname))
+        buf += "%08X" % self.devmajor
+        buf += "%08X" % self.devminor
+        buf += "%08X" % self.rdevmajor
+        buf += "%08X" % self.rdevminor
+        buf += "%08X" % (len(self.name)+1)
+        buf += "%08X" % self.check
 
-        if self.name.endswith("/"):
-            type = DIRTYPE
+        buf += self.name + NUL
+        words, remainder = divmod(len(buf), WORDSIZE)
+        if remainder != 0:
+            # pad to next word
+            buf += (WORDSIZE - remainder) * NUL
 
-        if type in (GNUTYPE_LONGNAME, GNUTYPE_LONGLINK):
-            # Prevent "././@LongLink" from being normalized.
-            name = self.name
-        else:
-            name = normpath(self.name)
+        if self.linkname != '':
+            buf += self.linkname
+            words, remainder = divmod(len(buf), WORDSIZE)
+            if remainder != 0:
+                # pad to next word
+                buf += (WORDSIZE - remainder) * NUL
 
-        if type == DIRTYPE:
-            # directories should end with '/'
-            name += "/"
-
-        linkname = self.linkname
-        if linkname:
-            # if linkname is empty we end up with a '.'
-            linkname = normpath(linkname)
-
-        if posix:
-            if self.size > MAXSIZE_MEMBER:
-                raise ValueError("file is too large (>= 8 GB)")
-
-            if len(self.linkname) > LENGTH_LINK:
-                raise ValueError("linkname is too long (>%d)" % (LENGTH_LINK))
-
-            if len(name) > LENGTH_NAME:
-                prefix = name[:LENGTH_PREFIX + 1]
-                while prefix and prefix[-1] != "/":
-                    prefix = prefix[:-1]
-
-                name = name[len(prefix):]
-                prefix = prefix[:-1]
-
-                if not prefix or len(name) > LENGTH_NAME:
-                    raise ValueError("name is too long")
-
-        else:
-            if len(self.linkname) > LENGTH_LINK:
-                buf += self._create_gnulong(self.linkname, GNUTYPE_LONGLINK)
-
-            if len(name) > LENGTH_NAME:
-                buf += self._create_gnulong(name, GNUTYPE_LONGNAME)
-
-        parts = [
-            stn(name, 100),
-            itn(self.mode & 07777, 8, posix),
-            itn(self.uid, 8, posix),
-            itn(self.gid, 8, posix),
-            itn(self.size, 12, posix),
-            itn(self.mtime, 12, posix),
-            "        ", # checksum field
-            type,
-            stn(self.linkname, 100),
-            stn(MAGIC, 6),
-            stn(VERSION, 2),
-            stn(self.uname, 32),
-            stn(self.gname, 32),
-            itn(self.devmajor, 8, posix),
-            itn(self.devminor, 8, posix),
-            stn(prefix, 155)
-        ]
-
-        buf += struct.pack("%ds" % BLOCKSIZE, "".join(parts))
-        chksum = calc_chksums(buf[-BLOCKSIZE:])[0]
-        buf = buf[:-364] + "%06o\0" % chksum + buf[-357:]
         self.buf = buf
         return buf
 
-    def _create_gnulong(self, name, type):
-        """Create a GNU longname/longlink header from name.
-           It consists of an extended cpio header, with the length
-           of the longname as size, followed by data blocks,
-           which contain the longname as a null terminated string.
-        """
-        name += NUL
-
-        cpioinfo = self.__class__()
-        cpioinfo.name = "././@LongLink"
-        cpioinfo.type = type
-        cpioinfo.mode = 0
-        cpioinfo.size = len(name)
-
-        # create extended header
-        buf = cpioinfo.tobuf()
-        # create name blocks
-        buf += name
-        blocks, remainder = divmod(len(name), BLOCKSIZE)
-        if remainder > 0:
-            buf += (BLOCKSIZE - remainder) * NUL
-        return buf
-
     def isreg(self):
-        return self.type in REGULAR_TYPES
+        return stat.S_ISREG(self.mode)
     def isfile(self):
         return self.isreg()
     def isdir(self):
-        return self.type == DIRTYPE
+        return stat.S_ISDIR(self.mode)
     def issym(self):
-        return self.type == SYMTYPE
+        return stat.S_ISLNK(self.mode)
     def islnk(self):
-        return self.type == LNKTYPE
+        return (stat.S_ISREG(self.mode) and self.nlink > 1)
     def ischr(self):
-        return self.type == CHRTYPE
+        return stat.S_ISCHR(self.mode)
     def isblk(self):
-        return self.type == BLKTYPE
+        return stat.S_ISBLK(self.mode)
     def isfifo(self):
-        return self.type == FIFOTYPE
+        return stat.S_ISFIFO(self.mode)
     def issparse(self):
-        return self.type == GNUTYPE_SPARSE
+        return False
     def isdev(self):
-        return self.type in (CHRTYPE, BLKTYPE, FIFOTYPE)
+        return (stat.S_ISCHR(self.mode) or stat.S_ISBLK(self.mode))
 # class CpioInfo
 
 class CpioFile(object):
@@ -1031,15 +863,12 @@ class CpioFile(object):
     dereference = False         # If true, add content of linked file to the
                                 # cpio file, else the link.
 
-    ignore_zeros = False        # If true, skips empty or invalid blocks and
-                                # continues processing.
+    hardlinks = True		# If true, only add content for the first
+    				# hard link, else treat as regular file.
 
     errorlevel = 0              # If 0, fatal errors only appear in debug
                                 # messages (if debug >= 0). If > 0, errors
                                 # are passed to the caller as exceptions.
-
-    posix = False               # If True, generates POSIX.1-1990-compliant
-                                # archives (no GNU extensions!)
 
     fileobject = ExFileObject
 
@@ -1052,22 +881,23 @@ class CpioFile(object):
            can be determined, `mode' is overridden by `fileobj's mode.
            `fileobj' is not closed, when CpioFile is closed.
         """
-        self.name = os.path.abspath(name)
-
         if len(mode) > 1 or mode not in "raw":
             raise ValueError("mode must be 'r', 'a' or 'w'")
         self._mode = mode
         self.mode = {"r": "rb", "a": "r+b", "w": "wb"}[mode]
 
         if not fileobj:
-            fileobj = file(self.name, self.mode)
+            fileobj = file(name, self.mode)
             self._extfileobj = False
         else:
-            if self.name is None and hasattr(fileobj, "name"):
-                self.name = os.path.abspath(fileobj.name)
+            if name is None and hasattr(fileobj, "name"):
+                name = fileobj.name
             if hasattr(fileobj, "mode"):
                 self.mode = fileobj.mode
             self._extfileobj = True
+        self.name = None
+        if name:
+            self.name = os.path.abspath(name)
         self.fileobj = fileobj
 
         # Init datastructures
@@ -1084,8 +914,9 @@ class CpioFile(object):
 
         if self._mode == "a":
             # Move to the end of the archive,
-            # before the first empty block.
+            # before the trailer.
             self.firstmember = None
+            last_offset = 0L
             while True:
                 try:
                     cpioinfo = self.next()
@@ -1093,8 +924,10 @@ class CpioFile(object):
                     self.fileobj.seek(0)
                     break
                 if cpioinfo is None:
-                    self.fileobj.seek(- BLOCKSIZE, 1)
+                    self.fileobj.seek(last_offset)
                     break
+                else:
+                    last_offset = cpioinfo.offset
 
         if self._mode in "aw":
             self._loaded = True
@@ -1251,20 +1084,23 @@ class CpioFile(object):
     # The public methods which CpioFile provides:
 
     def close(self):
-        """Close the CpioFile. In write-mode, two finishing zero blocks are
+        """Close the CpioFile. In write-mode, a trailer record is
            appended to the archive.
         """
         if self.closed:
             return
 
         if self._mode in "aw":
-            self.fileobj.write(NUL * (BLOCKSIZE * 2))
-            self.offset += (BLOCKSIZE * 2)
-            # fill up the end with zero-blocks
-            # (like option -b20 for cpio does)
-            blocks, remainder = divmod(self.offset, RECORDSIZE)
-            if remainder > 0:
-                self.fileobj.write(NUL * (RECORDSIZE - remainder))
+            trailer = CpioInfo(TRAILER_NAME)
+            trailer.mode = 0
+            buf = trailer.tobuf()
+            self.fileobj.write(buf)
+            self.offset += len(buf)
+            
+#            blocks, remainder = divmod(self.offset, BLOCKSIZE)
+#            if remainder > 0:
+#                self.fileobj.write((BLOCKSIZE - remainder) * NUL)
+#                self.offset += (BLOCKSIZE - remainder)
 
         if not self._extfileobj:
             self.fileobj.close()
@@ -1334,67 +1170,31 @@ class CpioFile(object):
                 statres = os.stat(name)
         else:
             statres = os.fstat(fileobj.fileno())
-        linkname = ""
 
         stmd = statres.st_mode
-        if stat.S_ISREG(stmd):
-            inode = (statres.st_ino, statres.st_dev)
-            if not self.dereference and \
-                    statres.st_nlink > 1 and inode in self.inodes:
-                # Is it a hardlink to an already
-                # archived file?
-                type = LNKTYPE
-                linkname = self.inodes[inode]
-            else:
-                # The inode is added only if its valid.
-                # For win32 it is always 0.
-                type = REGTYPE
-                if inode[0]:
-                    self.inodes[inode] = arcname
-        elif stat.S_ISDIR(stmd):
-            type = DIRTYPE
-            if arcname[-1:] != "/":
-                arcname += "/"
-        elif stat.S_ISFIFO(stmd):
-            type = FIFOTYPE
-        elif stat.S_ISLNK(stmd):
-            type = SYMTYPE
-            linkname = os.readlink(name)
-        elif stat.S_ISCHR(stmd):
-            type = CHRTYPE
-        elif stat.S_ISBLK(stmd):
-            type = BLKTYPE
-        else:
-            return None
 
         # Fill the CpioInfo object with all
         # information we can get.
-        cpioinfo.name = arcname
+        cpioinfo.ino = statres.st_ino
         cpioinfo.mode = stmd
         cpioinfo.uid = statres.st_uid
         cpioinfo.gid = statres.st_gid
+        cpioinfo.nlink = statres.st_nlink
+        cpioinfo.mtime = statres.st_mtime
         if stat.S_ISREG(stmd):
             cpioinfo.size = statres.st_size
         else:
             cpioinfo.size = 0L
-        cpioinfo.mtime = statres.st_mtime
-        cpioinfo.type = type
-        cpioinfo.linkname = linkname
-        if pwd:
-            try:
-                cpioinfo.uname = pwd.getpwuid(cpioinfo.uid)[0]
-            except KeyError:
-                pass
-        if grp:
-            try:
-                cpioinfo.gname = grp.getgrgid(cpioinfo.gid)[0]
-            except KeyError:
-                pass
+        cpioinfo.devmajor = os.major(statres.st_dev)
+        cpioinfo.devminor = os.minor(statres.st_dev)
+        if stat.S_ISCHR(stmd) or stat.S_ISBLK(stmd):
+            cpioinfo.rdevmajor = os.major(statres.st_rdev)
+            cpioinfo.rdevminor = os.minor(statres.st_rdev)
+        if stat.S_ISLNK(stmd):
+            cpioinfo.linkname = os.readlink(name)
+        cpioinfo.namesize = len(arcname)
+        cpioinfo.name = arcname
 
-        if type in (CHRTYPE, BLKTYPE):
-            if hasattr(os, "major") and hasattr(os, "minor"):
-                cpioinfo.devmajor = os.major(statres.st_rdev)
-                cpioinfo.devminor = os.minor(statres.st_rdev)
         return cpioinfo
 
     def list(self, verbose=True):
@@ -1407,8 +1207,7 @@ class CpioFile(object):
         for cpioinfo in self:
             if verbose:
                 print filemode(cpioinfo.mode),
-                print "%s/%s" % (cpioinfo.uname or cpioinfo.uid,
-                                 cpioinfo.gname or cpioinfo.gid),
+                print "%d/%d" % (cpioinfo.uid, cpioinfo.gid),
                 if cpioinfo.ischr() or cpioinfo.isblk():
                     print "%10s" % ("%d,%d" \
                                     % (cpioinfo.devmajor, cpioinfo.devminor)),
@@ -1417,14 +1216,7 @@ class CpioFile(object):
                 print "%d-%02d-%02d %02d:%02d:%02d" \
                       % time.localtime(cpioinfo.mtime)[:6],
 
-            print cpioinfo.name,
-
-            if verbose:
-                if cpioinfo.issym():
-                    print "->", cpioinfo.linkname,
-                if cpioinfo.islnk():
-                    print "link to", cpioinfo.linkname,
-            print
+            print cpioinfo.name
 
     def add(self, name, arcname=None, recursive=True):
         """Add the file `name' to the archive. `name' may be any type of file
@@ -1488,18 +1280,28 @@ class CpioFile(object):
 
         cpioinfo = copy.copy(cpioinfo)
 
-        buf = cpioinfo.tobuf(self.posix)
+        if cpioinfo.nlink > 1:
+            if self.hardlinks and self.inodes.has_key(cpioinfo.ino):
+                # this inode has already been added
+                cpioinfo.size = 0
+                self.inodes[cpioinfo.ino].append(cpioinfo.name)
+            else:
+                self.inodes[cpioinfo.ino] = [cpioinfo.name]
+
+        buf = cpioinfo.tobuf()
         self.fileobj.write(buf)
         self.offset += len(buf)
 
         # If there's data to follow, append it.
         if fileobj is not None:
             copyfileobj(fileobj, self.fileobj, cpioinfo.size)
-            blocks, remainder = divmod(cpioinfo.size, BLOCKSIZE)
+            self.offset += cpioinfo.size
+
+            words, remainder = divmod(self.offset, WORDSIZE)
             if remainder > 0:
-                self.fileobj.write(NUL * (BLOCKSIZE - remainder))
-                blocks += 1
-            self.offset += blocks * BLOCKSIZE
+                # pad to next word
+                self.fileobj.write((WORDSIZE - remainder) * NUL)
+                self.offset += (WORDSIZE - remainder)
 
         self.members.append(cpioinfo)
 
@@ -1559,7 +1361,8 @@ class CpioFile(object):
 
         # Prepare the link cpioget for makelink().
         if cpioinfo.islnk():
-            cpioinfo._link_cpioget = os.path.join(path, cpioinfo.linkname)
+#            cpioinfo._link_cpioget = os.path.join(path, cpioinfo.linkname)
+            cpioinfo._link_path = path
 
         try:
             self._extract_member(cpioinfo, os.path.join(path, cpioinfo.name))
@@ -1593,24 +1396,20 @@ class CpioFile(object):
         else:
             cpioinfo = self.getmember(member)
 
-        if cpioinfo.isreg():
-            return self.fileobject(self, cpioinfo)
-
-        elif cpioinfo.type not in SUPPORTED_TYPES:
-            # If a member's type is unknown, it is treated as a
-            # regular file.
-            return self.fileobject(self, cpioinfo)
-
-        elif cpioinfo.islnk() or cpioinfo.issym():
+        if cpioinfo.issym():
             if isinstance(self.fileobj, _Stream):
                 # A small but ugly workaround for the case that someone tries
-                # to extract a (sym)link as a file-object from a non-seekable
+                # to extract a symlink as a file-object from a non-seekable
                 # stream of cpio blocks.
-                raise StreamError("cannot extract (sym)link as file object")
+                raise StreamError("cannot extract symlink as file object")
             else:
-                # A (sym)link's file object is its cpioget's file object.
+                # A symlink's file object is its cpioget's file object.
                 return self.extractfile(self._getmember(cpioinfo.linkname,
                                                         cpioinfo))
+        elif cpioinfo.islnk():
+            return self.fileobject(self, self._datamember(cpioinfo))
+        elif cpioinfo.isreg():
+            return self.fileobject(self, cpioinfo)
         else:
             # If there's no data associated with the member (directory, chrdev,
             # blkdev, etc.), return None instead of a file object.
@@ -1623,8 +1422,6 @@ class CpioFile(object):
         # Fetch the CpioInfo object for the given name
         # and build the destination pathname, replacing
         # forward slashes to platform specific separators.
-        if cpiogetpath[-1:] == "/":
-            cpiogetpath = cpiogetpath[:-1]
         cpiogetpath = os.path.normpath(cpiogetpath)
 
         # Create all upper directories.
@@ -1632,19 +1429,16 @@ class CpioFile(object):
         if upperdirs and not os.path.exists(upperdirs):
             ti = CpioInfo()
             ti.name  = upperdirs
-            ti.type  = DIRTYPE
-            ti.mode  = 0777
+            ti.mode  = S_IFDIR | 0777
             ti.mtime = cpioinfo.mtime
             ti.uid   = cpioinfo.uid
             ti.gid   = cpioinfo.gid
-            ti.uname = cpioinfo.uname
-            ti.gname = cpioinfo.gname
             try:
                 self._extract_member(ti, ti.name)
             except:
                 pass
 
-        if cpioinfo.islnk() or cpioinfo.issym():
+        if cpioinfo.issym():
             self._dbg(1, "%s -> %s" % (cpioinfo.name, cpioinfo.linkname))
         else:
             self._dbg(1, cpioinfo.name)
@@ -1657,10 +1451,8 @@ class CpioFile(object):
             self.makefifo(cpioinfo, cpiogetpath)
         elif cpioinfo.ischr() or cpioinfo.isblk():
             self.makedev(cpioinfo, cpiogetpath)
-        elif cpioinfo.islnk() or cpioinfo.issym():
-            self.makelink(cpioinfo, cpiogetpath)
-        elif cpioinfo.type not in SUPPORTED_TYPES:
-            self.makeunknown(cpioinfo, cpiogetpath)
+        elif cpioinfo.issym():
+            self.makesymlink(cpioinfo, cpiogetpath)
         else:
             self.makefile(cpioinfo, cpiogetpath)
 
@@ -1686,19 +1478,27 @@ class CpioFile(object):
     def makefile(self, cpioinfo, cpiogetpath):
         """Make a file called cpiogetpath.
         """
-        source = self.extractfile(tarinfo)
-        cpioget = file(cpiogetpath, "wb")
-        copyfileobj(source, cpioget)
-        source.close()
-        cpioget.close()
+        extractinfo = None
+        if cpioinfo.nlink == 1:
+            extractinfo = cpioinfo
+        else:
+            if self.inodes.has_key(cpioinfo.ino):
+                # actual file exists, create link
+                # FIXME handle platforms that don't support hardlinks
+                os.link(os.path.join(cpioinfo._link_path, self.inodes[cpioinfo.ino][0]), cpiogetpath)
+            else:
+                extractinfo = self._datamember(cpioinfo)
 
-    def makeunknown(self, cpioinfo, cpiogetpath):
-        """Make a file from a CpioInfo object with an unknown type
-           at cpiogetpath.
-        """
-        self.makefile(cpioinfo, cpiogetpath)
-        self._dbg(1, "cpiofile: Unknown file type %r, " \
-                     "extracted as regular file." % cpioinfo.type)
+        if cpioinfo.ino not in self.inodes:
+            self.inodes[cpioinfo.ino] = []
+        self.inodes[cpioinfo.ino].append(cpioinfo.name)
+
+        if extractinfo:
+            source = self.extractfile(extractinfo)
+            cpioget = file(cpiogetpath, "wb")
+            copyfileobj(source, cpioget)
+            source.close()
+            cpioget.close()
 
     def makefifo(self, cpioinfo, cpiogetpath):
         """Make a fifo called cpiogetpath.
@@ -1722,6 +1522,10 @@ class CpioFile(object):
 
         os.mknod(cpiogetpath, mode,
                  os.makedev(cpioinfo.devmajor, cpioinfo.devminor))
+
+    def makesymlink(self, cpioinfo, cpiogetpath):
+        # FIXME handle platforms that don't support symlinks
+        os.symlink(cpioinfo.linkname, cpiogetpath)
 
     def makelink(self, cpioinfo, cpiogetpath):
         """Make a (symbolic) link called cpiogetpath. If it cannot be created
@@ -1756,19 +1560,13 @@ class CpioFile(object):
         if pwd and hasattr(os, "geteuid") and os.geteuid() == 0:
             # We have to be root to do so.
             try:
-                g = grp.getgrnam(cpioinfo.gname)[2]
+                g = grp.getgrgid(cpioinfo.gid)[2]
             except KeyError:
-                try:
-                    g = grp.getgrgid(cpioinfo.gid)[2]
-                except KeyError:
-                    g = os.getgid()
+                g = os.getgid()
             try:
-                u = pwd.getpwnam(cpioinfo.uname)[2]
+                u = pwd.getpwuid(cpioinfo.uid)[2]
             except KeyError:
-                try:
-                    u = pwd.getpwuid(cpioinfo.uid)[2]
-                except KeyError:
-                    u = os.getuid()
+                u = os.getuid()
             try:
                 if cpioinfo.issym() and hasattr(os, "lchown"):
                     os.lchown(cpiogetpath, u, g)
@@ -1815,175 +1613,77 @@ class CpioFile(object):
 
         # Read the next block.
         self.fileobj.seek(self.offset)
-        while True:
-            buf = self.fileobj.read(BLOCKSIZE)
-            if not buf:
+        buf = self.fileobj.read(HEADERSIZE_SVR4)
+        if not buf:
+            return None
+
+        try:
+            cpioinfo = CpioInfo.frombuf(buf)
+            total_header_len = self._word(HEADERSIZE_SVR4 + cpioinfo.namesize)
+            name_buf = self.fileobj.read(total_header_len - HEADERSIZE_SVR4)
+            cpioinfo.name = name_buf.rstrip(NUL)
+
+            if cpioinfo.name == TRAILER_NAME:
+                self.offset += total_header_len
                 return None
 
-            try:
-                cpioinfo = CpioInfo.frombuf(buf)
+            # Set the CpioInfo object's offset to the current position of the
+            # CpioFile and set self.offset to the position where the data blocks
+            # should begin.
+            cpioinfo.offset = self.offset
+            self.offset += total_header_len
 
-                # Set the CpioInfo object's offset to the current position of the
-                # CpioFile and set self.offset to the position where the data blocks
-                # should begin.
-                cpioinfo.offset = self.offset
-                self.offset += BLOCKSIZE
+            if cpioinfo.issym():
+                linkname_buf = self.fileobj.read(self._word(cpioinfo.size))
+                cpioinfo.linkname = linkname_buf.rstrip(NUL)
+                self.offset += self._word(cpioinfo.size)
+                cpioinfo.size = 0
 
-                cpioinfo = self.proc_member(cpioinfo)
+            cpioinfo = self.proc_member(cpioinfo)
 
-            except HeaderError, e:
-                if self.ignore_zeros:
-                    self._dbg(2, "0x%X: %s" % (self.offset, e))
-                    self.offset += BLOCKSIZE
-                    continue
-                else:
-                    if self.offset == 0:
-                        raise ReadError(str(e))
-                    return None
-            break
-
-        # Some old cpio programs represent a directory as a regular
-        # file with a trailing slash.
-        if cpioinfo.isreg() and cpioinfo.name.endswith("/"):
-            cpioinfo.type = DIRTYPE
-
-        # Directory names should have a '/' at the end.
-        if cpioinfo.isdir():
-            cpioinfo.name += "/"
+        except ValueError, e:
+            if self.offset == 0:
+                raise ReadError("empty, unreadable or compressed "
+                                "file: %s" % e)
+            return None
 
         self.members.append(cpioinfo)
         return cpioinfo
 
-    #--------------------------------------------------------------------------
-    # The following are methods that are called depending on the type of a
-    # member. The entry point is proc_member() which is called with a CpioInfo
-    # object created from the header block from the current offset. The
-    # proc_member() method can be overridden in a subclass to add custom
-    # proc_*() methods. A proc_*() method MUST implement the following
-    # operations:
-    # 1. Set cpioinfo.offset_data to the position where the data blocks begin,
-    #    if there is data that follows.
-    # 2. Set self.offset to the position where the next member's header will
-    #    begin.
-    # 3. Return cpioinfo or another valid CpioInfo object.
     def proc_member(self, cpioinfo):
-        """Choose the right processing method for cpioinfo depending
-           on its type and call it.
-        """
-        if cpioinfo.type in (GNUTYPE_LONGNAME, GNUTYPE_LONGLINK):
-            return self.proc_gnulong(cpioinfo)
-        elif cpioinfo.type == GNUTYPE_SPARSE:
-            return self.proc_sparse(cpioinfo)
-        else:
-            return self.proc_builtin(cpioinfo)
-
-    def proc_builtin(self, cpioinfo):
         """Process a builtin type member or an unknown member
            which will be treated as a regular file.
         """
         cpioinfo.offset_data = self.offset
-        if cpioinfo.isreg() or cpioinfo.type not in SUPPORTED_TYPES:
+        if cpioinfo.size > 0:
             # Skip the following data blocks.
-            self.offset += self._block(cpioinfo.size)
-        return cpioinfo
-
-    def proc_gnulong(self, cpioinfo):
-        """Process the blocks that hold a GNU longname
-           or longlink member.
-        """
-        buf = ""
-        count = cpioinfo.size
-        while count > 0:
-            block = self.fileobj.read(BLOCKSIZE)
-            buf += block
-            self.offset += BLOCKSIZE
-            count -= BLOCKSIZE
-
-        # Fetch the next header and process it.
-        b = self.fileobj.read(BLOCKSIZE)
-        t = CpioInfo.frombuf(b)
-        t.offset = self.offset
-        self.offset += BLOCKSIZE
-        next = self.proc_member(t)
-
-        # Patch the CpioInfo object from the next header with
-        # the longname information.
-        next.offset = cpioinfo.offset
-        if cpioinfo.type == GNUTYPE_LONGNAME:
-            next.name = buf.rstrip(NUL)
-        elif cpioinfo.type == GNUTYPE_LONGLINK:
-            next.linkname = buf.rstrip(NUL)
-
-        return next
-
-    def proc_sparse(self, cpioinfo):
-        """Process a GNU sparse header plus extra headers.
-        """
-        buf = cpioinfo.buf
-        sp = _ringbuffer()
-        pos = 386
-        lastpos = 0L
-        realpos = 0L
-        # There are 4 possible sparse structs in the
-        # first header.
-        for i in xrange(4):
-            try:
-                offset = nti(buf[pos:pos + 12])
-                numbytes = nti(buf[pos + 12:pos + 24])
-            except ValueError:
-                break
-            if offset > lastpos:
-                sp.append(_hole(lastpos, offset - lastpos))
-            sp.append(_data(offset, numbytes, realpos))
-            realpos += numbytes
-            lastpos = offset + numbytes
-            pos += 24
-
-        isextended = ord(buf[482])
-        origsize = nti(buf[483:495])
-
-        # If the isextended flag is given,
-        # there are extra headers to process.
-        while isextended == 1:
-            buf = self.fileobj.read(BLOCKSIZE)
-            self.offset += BLOCKSIZE
-            pos = 0
-            for i in xrange(21):
-                try:
-                    offset = nti(buf[pos:pos + 12])
-                    numbytes = nti(buf[pos + 12:pos + 24])
-                except ValueError:
-                    break
-                if offset > lastpos:
-                    sp.append(_hole(lastpos, offset - lastpos))
-                sp.append(_data(offset, numbytes, realpos))
-                realpos += numbytes
-                lastpos = offset + numbytes
-                pos += 24
-            isextended = ord(buf[504])
-
-        if lastpos < origsize:
-            sp.append(_hole(lastpos, origsize - lastpos))
-
-        cpioinfo.sparse = sp
-
-        cpioinfo.offset_data = self.offset
-        self.offset += self._block(cpioinfo.size)
-        cpioinfo.size = origsize
-
+            self.offset += self._word(cpioinfo.size)
         return cpioinfo
 
     #--------------------------------------------------------------------------
     # Little helper methods:
 
-    def _block(self, count):
-        """Round up a byte count by BLOCKSIZE and return it,
-           e.g. _block(834) => 1024.
+    def _word(self, count):
+        """Round up a byte count by WORDSIZE and return it,
+           e.g. _word(17) => 20.
         """
-        blocks, remainder = divmod(count, BLOCKSIZE)
+        words, remainder = divmod(count, WORDSIZE)
         if remainder:
-            blocks += 1
-        return blocks * BLOCKSIZE
+            words += 1
+        return words * WORDSIZE
+
+    def _datamember(self, cpioinfo):
+        """Find the archive member that actually has the data
+           for cpioinfo.ino.
+        """
+        if cpioinfo.size == 0:
+            # perhaps another member has the data?
+            for info in self:
+                if info.ino == cpioinfo.ino and info.size > 0:
+                    self._dbg(2, "cpiofile: found member %s" % info.name)
+                    return info
+
+        return cpioinfo
 
     def _getmember(self, name, cpioinfo=None):
         """Find an archive member by name from bottom to top.
@@ -2071,49 +1771,6 @@ class CpioIter:
         self.index += 1
         return cpioinfo
 
-# Helper classes for sparse file support
-class _section:
-    """Base class for _data and _hole.
-    """
-    def __init__(self, offset, size):
-        self.offset = offset
-        self.size = size
-    def __contains__(self, offset):
-        return self.offset <= offset < self.offset + self.size
-
-class _data(_section):
-    """Represent a data section in a sparse file.
-    """
-    def __init__(self, offset, size, realpos):
-        _section.__init__(self, offset, size)
-        self.realpos = realpos
-
-class _hole(_section):
-    """Represent a hole section in a sparse file.
-    """
-    pass
-
-class _ringbuffer(list):
-    """Ringbuffer class which increases performance
-       over a regular list.
-    """
-    def __init__(self):
-        self.idx = 0
-    def find(self, offset):
-        idx = self.idx
-        while True:
-            item = self[idx]
-            if offset in item:
-                break
-            idx += 1
-            if idx == len(self):
-                idx = 0
-            if idx == self.idx:
-                # End of File
-                return None
-        self.idx = idx
-        return item
-
 #---------------------------------------------
 # zipfile compatible CpioFile class
 #---------------------------------------------
@@ -2139,7 +1796,7 @@ class CpioFileCompat:
     def namelist(self):
         return map(lambda m: m.name, self.infolist())
     def infolist(self):
-        return filter(lambda m: m.type in REGULAR_TYPES,
+        return filter(lambda m: m.isreg(),
                       self.cpiofile.getmembers())
     def printdir(self):
         self.cpiofile.list()
