@@ -931,28 +931,28 @@ class CpioFile(object):
         """
         if len(mode) > 1 or mode not in "raw":
             raise ValueError("mode must be 'r', 'a' or 'w'")
-        self._mode = mode
-        self.mode = {"r": "rb", "a": "r+b", "w": "wb"}[mode]
+        self.mode = mode
+        self._mode = {"r": "rb", "a": "r+b", "w": "wb"}[mode]
 
         if not fileobj:
-            if self._mode == "a" and not os.path.exists(name):
+            if self.mode == "a" and not os.path.exists(name):
                 # Create nonexistent files in append mode.
-                self._mode = "w"
-                self.mode = "wb"
-            fileobj = file(name, self.mode)
+                self.mode = "w"
+                self._mode = "wb"
+            fileobj = file(name, self._mode)
             self._extfileobj = False
         else:
             if name is None and hasattr(fileobj, "name"):
                 name = fileobj.name
             if hasattr(fileobj, "mode"):
-                self.mode = fileobj.mode
+                self._mode = fileobj.mode
             self._extfileobj = True
         self.name = None
         if name:
             self.name = os.path.abspath(name)
         self.fileobj = fileobj
 
-        # Init datastructures
+        # Init datastructures.
         self.closed = False
         self.members = []       # list of members as CpioInfo objects
         self._loaded = False    # flag if all members have been read
@@ -960,27 +960,23 @@ class CpioFile(object):
         self.inodes = {}        # dictionary caching the inodes of
                                 # archive members already added
 
-        if self._mode == "r":
+        if self.mode == "r":
             self.firstmember = None
             self.firstmember = self.next()
 
-        if self._mode == "a":
+        if self.mode == "a":
             # Move to the end of the archive,
             # before the trailer.
             self.firstmember = None
             last_offset = 0L
             while True:
-                try:
-                    last_offset = self.fileobj.tell()
-                    cpioinfo = self.next()
-                except ReadError:
-                    self.fileobj.seek(0)
-                    break
+                last_offset = self.fileobj.tell()
+                cpioinfo = self.next()
                 if cpioinfo is None:
                     self.fileobj.seek(last_offset)
                     break
 
-        if self._mode in "aw":
+        if self.mode in "aw":
             self._loaded = True
 
     #--------------------------------------------------------------------------
@@ -995,7 +991,7 @@ class CpioFile(object):
     # by adding it to the mapping in OPEN_METH.
 
     @classmethod
-    def open(cls, name=None, mode="r", fileobj=None, bufsize=20*512):
+    def open(cls, name=None, mode="r", fileobj=None, bufsize=20*512, **kwargs):
         """Open a cpio archive for reading, writing or appending. Return
            an appropriate CpioFile class.
 
@@ -1032,7 +1028,7 @@ class CpioFile(object):
                 if fileobj is not None:
                     saved_pos = fileobj.tell()
                 try:
-                    return func(name, "r", fileobj)
+                    return func(name, "r", fileobj, **kwargs)
                 except (ReadError, CompressionError):
                     if fileobj is not None:
                         fileobj.seek(saved_pos)
@@ -1050,7 +1046,7 @@ class CpioFile(object):
                 func = getattr(cls, cls.OPEN_METH[comptype])
             else:
                 raise CompressionError("unknown compression type %r" % comptype)
-            return func(name, filemode, fileobj)
+            return func(name, filemode, fileobj, **kwargs)
 
         elif "|" in mode:
             filemode, comptype = mode.split("|", 1)
@@ -1061,25 +1057,26 @@ class CpioFile(object):
                 raise ValueError("mode must be 'r' or 'w'")
 
             t = cls(name, filemode,
-                    _Stream(name, filemode, comptype, fileobj, bufsize))
+                    _Stream(name, filemode, comptype, fileobj, bufsize),
+                    **kwargs)
             t._extfileobj = False
             return t
 
         elif mode in "aw":
-            return cls.cpioopen(name, mode, fileobj)
+            return cls.cpioopen(name, mode, fileobj, **kwargs)
 
         raise ValueError("undiscernible mode")
 
     @classmethod
-    def cpioopen(cls, name, mode="r", fileobj=None):
+    def cpioopen(cls, name, mode="r", fileobj=None, **kwargs):
         """Open uncompressed cpio archive name for reading or writing.
         """
         if len(mode) > 1 or mode not in "raw":
             raise ValueError("mode must be 'r', 'a' or 'w'")
-        return cls(name, mode, fileobj)
+        return cls(name, mode, fileobj, **kwargs)
 
     @classmethod
-    def gzopen(cls, name, mode="r", fileobj=None, compresslevel=9):
+    def gzopen(cls, name, mode="r", fileobj=None, compresslevel=9, **kwargs):
         """Open gzip compressed cpio archive name for reading or writing.
            Appending is not allowed.
         """
@@ -1097,14 +1094,15 @@ class CpioFile(object):
 
         try:
             t = cls.cpioopen(name, mode,
-                gzip.GzipFile(name, mode, compresslevel, fileobj))
+                gzip.GzipFile(name, mode, compresslevel, fileobj),
+                **kwargs)
         except IOError:
             raise ReadError("not a gzip file")
         t._extfileobj = False
         return t
 
     @classmethod
-    def bz2open(cls, name, mode="r", fileobj=None, compresslevel=9):
+    def bz2open(cls, name, mode="r", fileobj=None, compresslevel=9, **kwargs):
         """Open bzip2 compressed cpio archive name for reading or writing.
            Appending is not allowed.
         """
@@ -1122,7 +1120,7 @@ class CpioFile(object):
             fileobj = bz2.BZ2File(name, mode, compresslevel=compresslevel)
 
         try:
-            t = cls.cpioopen(name, mode, fileobj)
+            t = cls.cpioopen(name, mode, fileobj, **kwargs)
         except IOError:
             raise ReadError("not a bzip2 file")
         t._extfileobj = False
@@ -1172,7 +1170,7 @@ class CpioFile(object):
         if self.closed:
             return
 
-        if self._mode in "aw":
+        if self.mode in "aw":
             trailer = CpioInfo(TRAILER_NAME)
             trailer.mode = 0
             buf = trailer.tobuf()
@@ -1293,7 +1291,7 @@ class CpioFile(object):
                 print "%d-%02d-%02d %02d:%02d:%02d" \
                       % time.localtime(cpioinfo.mtime)[:6],
 
-            print cpioinfo.name,
+            print cpioinfo.name + ("/" if cpioinfo.isdir() else ""),
 
             if verbose:
                 if cpioinfo.issym():
@@ -1325,7 +1323,7 @@ class CpioFile(object):
             if recursive:
                 if arcname == ".":
                     arcname = ""
-                for f in os.listdir("."):
+                for f in os.listdir(name):
                     self.add(f, os.path.join(arcname, f))
             return
 
@@ -1406,7 +1404,7 @@ class CpioFile(object):
                 # Extract directory with a safe mode, so that
                 # all files below can be extracted as well.
                 try:
-                    os.makedirs(os.path.join(path, cpioinfo.name), 0777)
+                    os.makedirs(os.path.join(path, cpioinfo.name), 0700)
                 except EnvironmentError:
                     pass
                 directories.append(cpioinfo)
@@ -1438,10 +1436,10 @@ class CpioFile(object):
         """
         self._check("r")
 
-        if isinstance(member, CpioInfo):
-            cpioinfo = member
-        else:
+        if isinstance(member, basestring):
             cpioinfo = self.getmember(member)
+        else:
+            cpioinfo = member
 
         # Prepare the link target for makelink().
         if cpioinfo.islnk():
@@ -1474,10 +1472,10 @@ class CpioFile(object):
         """
         self._check("r")
 
-        if isinstance(member, CpioInfo):
-            cpioinfo = member
-        else:
+        if isinstance(member, basestring):
             cpioinfo = self.getmember(member)
+        else:
+            cpioinfo = member
 
         if cpioinfo.isreg():
             return self.fileobject(self, cpioinfo)
@@ -1794,8 +1792,8 @@ class CpioFile(object):
         """
         if self.closed:
             raise IOError("%s is closed" % self.__class__.__name__)
-        if mode is not None and self._mode not in mode:
-            raise IOError("bad operation for mode %r" % self._mode)
+        if mode is not None and self.mode not in mode:
+            raise IOError("bad operation for mode %r" % self.mode)
 
     def __iter__(self):
         """Provide an iterator object.
