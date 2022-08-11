@@ -73,8 +73,7 @@ class ReadTest(BaseTest):
                          "size read does not match expected size")
             f.close()
 
-        self.assert_(members == membercount,
-                     "could not find all members")
+        self.assertEqual(members, membercount)
 
     def test_sparse(self):
         """Test sparse member extraction.
@@ -175,6 +174,7 @@ class ReadStreamTest(ReadTest):
         ReadTest.test(self)
         cpioinfo = self.cpio.getmembers()[0]
         f = self.cpio.extractfile(cpioinfo)
+        self.assertIsNotNone(f)
         self.assertRaises(cpiofile.StreamError, f.read)
 
     def test_stream(self):
@@ -294,7 +294,7 @@ class AppendTest(unittest.TestCase):
 
     def _test(self, names=["bar"], fileobj=None):
         cpio = cpiofile.open(self.cpioname, fileobj=fileobj)
-        self.assert_(cpio.getnames() == names)
+        self.assertEqual(cpio.getnames(), names)
 
     def test_non_existing(self):
         self._add_testfile()
