@@ -1630,19 +1630,7 @@ class CpioFile(object):
         # Create all upper directories.
         upperdirs = os.path.dirname(cpiogetpath)
         if upperdirs and not os.path.exists(upperdirs):
-            ti = CpioInfo()
-            ti.name  = upperdirs
-            ti.type  = DIRTYPE
-            ti.mode  = 0777
-            ti.mtime = cpioinfo.mtime
-            ti.uid   = cpioinfo.uid
-            ti.gid   = cpioinfo.gid
-            ti.uname = cpioinfo.uname
-            ti.gname = cpioinfo.gname
-            try:
-                self._extract_member(ti, ti.name)
-            except:
-                pass
+            os.makedirs(upperdirs)
 
         if cpioinfo.islnk() or cpioinfo.issym():
             self._dbg(1, "%s -> %s" % (cpioinfo.name, cpioinfo.linkname))
