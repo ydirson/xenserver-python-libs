@@ -1490,7 +1490,7 @@ class CpioFile(object):
                 # Create nonexistent files in append mode.
                 self.mode = "w"
                 self._mode = "wb"
-            fileobj = file(name, self._mode)
+            fileobj = bltn_open(name, self._mode)
             self._extfileobj = False
         else:
             if name is None and hasattr(fileobj, "name"):
@@ -1667,7 +1667,7 @@ class CpioFile(object):
             raise CompressionError("gzip module is not available")
 
         if fileobj is None:
-            fileobj = file(name, mode + "b")
+            fileobj = bltn_open(name, mode + "b")
 
         try:
             t = cls.cpioopen(name, mode,
@@ -1928,7 +1928,7 @@ class CpioFile(object):
 
         # Append the cpio header and data to the archive.
         if cpioinfo.isreg():
-            f = file(name, "rb")
+            f = bltn_open(name, "rb")
             self.addfile(cpioinfo, f)
             f.close()
 
@@ -2139,10 +2139,10 @@ class CpioFile(object):
         """Make a file called cpiogetpath.
         """
         source = self.extractfile(cpioinfo)
-        cpioget = file(cpiogetpath, "wb")
-        copyfileobj(source, cpioget)
+        target = bltn_open(targetpath, "wb")
+        copyfileobj(source, target)
         source.close()
-        cpioget.close()
+        target.close()
 
     def makeunknown(self, cpioinfo, cpiogetpath):
         """Make a file from a CpioInfo object with an unknown type
@@ -2484,4 +2484,5 @@ def is_cpiofile(name):
     except CpioError:
         return False
 
+bltn_open = open
 open = CpioFile.open
