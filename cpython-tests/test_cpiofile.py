@@ -463,7 +463,7 @@ if not gzip:
     del WriteTestGzip
     del WriteStreamTestGzip
 
-def test_main():
+def setUpModule():
     # Create archive.
     f = open(cpioname(), "rb")
     fguts = f.read()
@@ -484,6 +484,7 @@ def test_main():
         cpio.write(fguts)
         cpio.close()
 
+def _test_main():
     tests = [
         FileModeTest,
         OpenFileobjTest,
@@ -526,19 +527,19 @@ def test_main():
             ReadAsteriskTestXz, ReadStreamAsteriskTestXz
         ])
 
-    try:
-        test_support.run_unittest(*tests)
-    finally:
-        if gzip:
-            os.remove(cpioname("gz"))
-        if bz2:
-            os.remove(cpioname("bz2"))
-        if lzma:
-            os.remove(cpioname("xz"))
-        if os.path.exists(dirname()):
-            shutil.rmtree(dirname())
-        if os.path.exists(tmpname()):
-            os.remove(tmpname())
+    test_support.run_unittest(*tests)
+
+def tearDownModule():
+    if gzip:
+        os.remove(cpioname("gz"))
+    if bz2:
+        os.remove(cpioname("bz2"))
+    if lzma:
+        os.remove(cpioname("xz"))
+    if os.path.exists(dirname()):
+        shutil.rmtree(dirname())
+    if os.path.exists(tmpname()):
+        os.remove(tmpname())
 
 if __name__ == "__main__":
-    test_main()
+    _test_main()
